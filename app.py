@@ -53,8 +53,48 @@ QUESTIONS = load_questions()
 
 def format_question(i: int) -> str:
     q = QUESTIONS[i]
-    options = "\n".join(q["options"])  # Expect options already prefixed with A/B/C/D
-    return f"Q{i+1}/{len(QUESTIONS)}: {q['question']}\n{options}\n\nReply with A, B, C, or D."
+    # Optional tap-to-prefill links (set SANDBOX_NUMBER=14155238886 on Render)
+    sandbox_number = os.environ.get("SANDBOX_NUMBER")  # digits only, no '+'
+    letters = ["A", "B", "C", "D"]
+
+    rendered_options = []
+    for idx, opt in enumerate(q["options"]):
+        letter = letters[idx]
+        if sandbox_number:
+            rendered_options.append(
+                f"{opt} — tap: https://wa.me/{sandbox_number}?text={letter}"
+            )
+        else:
+            rendered_options.append(opt)
+
+    options = "\n".join(rendered_options)  # Expect options already prefixed with A/B/C/D
+    return (
+        f"Q{i+1}/{len(QUESTIONS)}: {q['question']}\n{options}\n\n"
+        "Reply with A, B, C, or D (or 1–4)."
+    )
+
+
+def normalize_answer(text: str):
+    """
+    Normalize user input to 'A'|'B'|'C'|'D' or None if invalid.
+    Accepts: a/A/a)/a., 1/2/3/4, trims whitespace.
+    """
+    if not text:
+        return None
+    s = text.strip().lower()
+
+    # Map digits 1-4 to letters
+    digit_map = {"1": "A", "2": "B", "3": "C", "4": "D"}
+    if s in digit_map:
+        return digit_map[s]
+
+    # Accept forms like 'a', 'a)', 'a.', 'a:' etc.
+    if s and s[0] in ("a", "b", "c", "d"):
+        first = s[0]
+        if len(s) == 1 or s[1] in (")", ".", ":", "-", " "):
+            return first.upper()
+
+    return None
 
 
 def twiml(message: str) -> Response:
@@ -87,21 +127,33 @@ def whatsapp():
         return twiml(welcome)
 
     if lower in ("help", "?"):
-        return twiml("Send START to begin. Answer with A, B, C, or D. Send START anytime to restart.")
+        return twiml(
+            "Send START to begin. Answer with A–D or 1–4. Send START anytime to restart. Send HINT for a clue."
+        )
+
+    # Optional: HINT command
+    if lower == "hint":
+        state = sessions.get(from_number)
+        if not state:
+            return twiml("Send START to begin the quiz.")
+        q_index = state["index"]
+        hint = QUESTIONS[q_index].get("hint")
+        return twiml(hint if hint else "No hint available for this question.")
 
     # Require a session
     state = sessions.get(from_number)
     if not state:
         return twiml("Send START to begin the quiz. Answer with A, B, C, or D.")
 
-    # Validate answer format
-    if lower not in ("a", "b", "c", "d"):
-        return twiml("Please reply with A, B, C, or D. Send START to restart.")
+    # Normalize and validate answer
+    norm = normalize_answer(body)
+    if not norm:
+        return twiml("Please reply with A–D or 1–4. Send HINT for a clue, or START to restart.")
 
     # Grade current question
     q_index = state["index"]
     correct_letter = QUESTIONS[q_index]["answer"]  # already uppercase
-    is_correct = (lower.upper() == correct_letter)
+    is_correct = (norm == correct_letter)
     if is_correct:
         state["score"] += 1
         feedback = "✅ Correct!"
