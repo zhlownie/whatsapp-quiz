@@ -5,12 +5,12 @@
     "options": [
       "A) Vanda Miss Joaquim",
       "B) Hibiscus",
-      "C) Lotus",
-      "D) Rose"
+      "C) Lotus"
     ],
     "answer": "A",
     "hint": "It's a type of orchid named after a Singaporean woman.",
-    "explanation": "The Vanda Miss Joaquim was chosen as Singapore's national flower in 1981 for its resilience and year-round blooming."
+    "explanation": "The Vanda Miss Joaquim was chosen as Singapore's national flower in 1981 for its resilience and year-round blooming.",
+    "quick_replies": ["A", "B", "C"]
   },
   {
     "id": 2,
@@ -18,12 +18,12 @@
     "options": [
       "A) 1959",
       "B) 1963",
-      "C) 1965",
-      "D) 1971"
+      "C) 1965"
     ],
     "answer": "C",
     "hint": "It happened after separation from Malaysia.",
-    "explanation": "Singapore became fully independent on 9 August 1965 after separating from Malaysia."
+    "explanation": "Singapore became fully independent on 9 August 1965 after separating from Malaysia.",
+    "quick_replies": ["A", "B", "C"]
   },
   {
     "id": 3,
@@ -31,12 +31,12 @@
     "options": [
       "A) Lion Head Symbol",
       "B) Merlion",
-      "C) Sea Guardian",
-      "D) Singa"
+      "C) Singa"
     ],
     "answer": "B",
     "hint": "It combines 'mer' (sea) and 'lion'.",
-    "explanation": "The Merlion, designed in 1964, symbolizes Singapore's origin as a fishing village (Singapura = 'Lion City')."
+    "explanation": "The Merlion, designed in 1964, symbolizes Singapore's origin as a fishing village (Singapura = 'Lion City').",
+    "quick_replies": ["A", "B", "C"]
   },
   {
     "id": 4,
@@ -44,12 +44,12 @@
     "options": [
       "A) English",
       "B) Mandarin",
-      "C) Malay",
-      "D) Tamil"
+      "C) Malay"
     ],
     "answer": "C",
     "hint": "It appears in the national anthem.",
-    "explanation": "Malay is the national language due to historical and regional ties, though English is the main working language."
+    "explanation": "Malay is the national language due to historical and regional ties, though English is the main working language.",
+    "quick_replies": ["A", "B", "C"]
   },
   {
     "id": 5,
@@ -57,11 +57,11 @@
     "options": [
       "A) Singapore",
       "B) Singa",
-      "C) Sovereign Ground",
-      "D) South Gulf"
+      "C) Sovereign Ground"
     ],
     "answer": "A",
     "hint": "It's the standard country code.",
-    "explanation": "'.sg' is Singapore's Internet country code top-level domain (ccTLD), assigned in 1988."
+    "explanation": "'.sg' is Singapore's Internet country code top-level domain (ccTLD), assigned in 1988.",
+    "quick_replies": ["A", "B", "C"]
   }
 ]
