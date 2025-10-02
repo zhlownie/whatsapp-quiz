@@ -15,12 +15,16 @@ app = Flask(__name__)
 # In-memory session store: { from_number: { index: int, score: int } }
 sessions = {}
 
-# Production interactive config (disabled by default)
-USE_TWILIO_INTERACTIVE = os.environ.get("USE_TWILIO_INTERACTIVE", "0") == "1"
+# Production interactive config (enabled by default if Twilio creds exist; override with USE_TWILIO_INTERACTIVE)
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-TWILIO_FROM = os.environ.get("TWILIO_FROM")  # e.g., 'whatsapp:+14155551234'
-TWILIO_CONTENT_SID_BUTTONS = os.environ.get("TWILIO_CONTENT_SID_BUTTONS")  # Content template SID
+TWILIO_FROM = os.environ.get("TWILIO_FROM")  # e.g., 'whatsapp:+14155238886'
+_env_flag = os.environ.get("USE_TWILIO_INTERACTIVE")
+if _env_flag is None:
+    # Auto-enable when all Twilio creds are provided
+    USE_TWILIO_INTERACTIVE = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM)
+else:
+    USE_TWILIO_INTERACTIVE = _env_flag == "1"
 
 twilio_client = None
 if USE_TWILIO_INTERACTIVE:
@@ -32,15 +36,7 @@ if USE_TWILIO_INTERACTIVE:
 
 
 def load_questions():
-    """Load and validate questions from questions.json.
-
-    Expected schema per item:
-    - question: str
-    - options: list[str] of length 4
-    - answer: str in {A,B,C,D} (case-insensitive)
-    - hint: Optional[str]
-    - explanation: Optional[str]
-    """
+    """Load and validate questions from questions.json."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base_dir, "questions.json")
     with open(path, "r", encoding="utf-8") as f:
@@ -61,9 +57,7 @@ def load_questions():
         allowed_letters = ["A", "B", "C", "D"][: len(opts)]
         if not isinstance(ans, str) or ans.upper() not in allowed_letters:
             raise ValueError(f"Question {i}: 'answer' must be one of {', '.join(allowed_letters)}")
-        # Normalize answer to uppercase for grading
         q["answer"] = ans.upper()
-        # Optional quick_replies subset (<=3) for production buttons
         qr = q.get("quick_replies")
         if qr is not None:
             if not isinstance(qr, list) or not all(isinstance(x, str) for x in qr):
@@ -91,21 +85,8 @@ QUESTIONS = load_questions()
 
 def format_question(i: int) -> str:
     q = QUESTIONS[i]
-    # Optional tap-to-prefill links (set SANDBOX_NUMBER=14155238886 on Render)
-    sandbox_number = os.environ.get("SANDBOX_NUMBER")  # digits only, no '+'
     allowed = ["A", "B", "C", "D"][: len(q["options"])]
-
-    rendered_options = []
-    for idx, opt in enumerate(q["options"]):
-        letter = allowed[idx]
-        if sandbox_number:
-            rendered_options.append(
-                f"{opt} — tap: https://wa.me/{sandbox_number}?text={letter}"
-            )
-        else:
-            rendered_options.append(opt)
-
-    options = "\n".join(rendered_options)
+    options = "\n".join(q["options"])
     return (
         f"Q{i+1}/{len(QUESTIONS)}: {q['question']}\n{options}\n\n"
         f"Reply with A–{allowed[-1]} (or 1–{len(allowed)})."
@@ -113,30 +94,30 @@ def format_question(i: int) -> str:
 
 
 def normalize_answer(text: str):
-    """
-    Normalize user input to 'A'|'B'|'C'|'D' or None if invalid.
-    Accepts: a/A/a)/a., 1/2/3/4, trims whitespace.
-    """
+    """Normalize user input to 'A'|'B'|'C'|'D'."""
     if not text:
         return None
-    s = text.strip().lower()
+    s = text.strip()
 
-    # Map digits 1-4 to letters
+    # Handle button replies: "A) Vanda Miss Joaquim" → "A"
+    if s and s[0] in ("A", "B", "C", "D"):
+        return s[0]
+
+    s_lower = s.lower()
     digit_map = {"1": "A", "2": "B", "3": "C", "4": "D"}
-    if s in digit_map:
-        return digit_map[s]
+    if s_lower in digit_map:
+        return digit_map[s_lower]
 
-    # Accept forms like 'a', 'a)', 'a.', 'a:' etc.
-    if s and s[0] in ("a", "b", "c", "d"):
-        first = s[0]
-        if len(s) == 1 or s[1] in (")", ".", ":", "-", " "):
+    if s_lower and s_lower[0] in ("a", "b", "c", "d"):
+        first = s_lower[0]
+        if len(s_lower) == 1 or s_lower[1] in (")", ".", ":", "-", " "):
             return first.upper()
 
     return None
 
 
 def twiml(message: str) -> Response:
-    """Return a TwiML XML response with a single Message node."""
+    """Return a TwiML XML response."""
     xml = (
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         f"<Response><Message>{escape(message)}</Message></Response>"
@@ -154,10 +135,8 @@ def whatsapp():
     from_number = request.form.get("From", "unknown")
     body = (request.form.get("Body") or "").strip()
     lower = body.lower()
-    # Interactive payloads (production buttons)
     button_payload = request.form.get("ButtonPayload") or request.form.get("buttonPayload")
 
-    # Commands
     if lower in ("start", "restart"):
         sessions[from_number] = {"index": 0, "score": 0}
         welcome_text = f"Welcome to the Singapore Quiz! You will get {len(QUESTIONS)} questions."
@@ -170,32 +149,28 @@ def whatsapp():
 
     if lower in ("help", "?"):
         return twiml(
-            "Send START to begin. In production: tap buttons. In sandbox: reply with A–D or 1–4. Send HINT for a clue."
+            "Send START to begin. Tap buttons if available, or reply with A–C. Send HINT for a clue."
         )
 
-    # Optional: HINT command
     if lower == "hint":
         state = sessions.get(from_number)
         if not state:
             return twiml("Send START to begin the quiz.")
         q_index = state["index"]
         hint = QUESTIONS[q_index].get("hint")
-        return twiml(hint if hint else "No hint available for this question.")
+        return twiml(hint if hint else "No hint available.")
 
-    # Require a session
     state = sessions.get(from_number)
     if not state:
-        return twiml("Send START to begin the quiz. Answer with A, B, C, or D.")
+        return twiml("Send START to begin the quiz.")
 
-    # Normalize and validate answer (prefer interactive payload if present)
     raw_answer = (button_payload or body)
     norm = normalize_answer(raw_answer)
     if not norm:
-        return twiml("Please reply with A–D or 1–4. Send HINT for a clue, or START to restart.")
+        return twiml("Please reply with A, B, or C. Send HINT for a clue.")
 
-    # Grade current question
     q_index = state["index"]
-    correct_letter = QUESTIONS[q_index]["answer"]  # already uppercase
+    correct_letter = QUESTIONS[q_index]["answer"]
     is_correct = (norm == correct_letter)
     if is_correct:
         state["score"] += 1
@@ -203,14 +178,10 @@ def whatsapp():
     else:
         feedback = f"❌ Not quite. Correct answer: {correct_letter}."
 
-    # Advance index
     state["index"] += 1
-
-    # Optional explanation
     expl = QUESTIONS[q_index].get("explanation")
     expl_line = f"\nℹ️ {expl}" if expl else ""
 
-    # Finished?
     if state["index"] >= len(QUESTIONS):
         score = state["score"]
         total = len(QUESTIONS)
@@ -223,13 +194,11 @@ def whatsapp():
             fun = "Nice effort! 👍"
         else:
             fun = "Keep practicing! 💪"
-        # Reset session
         sessions.pop(from_number, None)
         return twiml(
             f"{feedback}{expl_line}\n\nQuiz complete! Score: {score}/{total} ({pct}%). {fun}\nSend START to play again."
         )
 
-    # Next question
     if USE_TWILIO_INTERACTIVE:
         send_text(from_number, f"{feedback}{expl_line}")
         send_question_interactive(from_number, state["index"])
@@ -239,29 +208,22 @@ def whatsapp():
         return twiml(f"{feedback}{expl_line}\n\n{next_q}")
 
 
-# ----- Outbound helpers for production interactive mode -----
+# ----- Outbound helpers for interactive mode -----
 def send_text(to_whatsapp: str, body: str):
     assert twilio_client is not None
     twilio_client.messages.create(from_=TWILIO_FROM, to=to_whatsapp, body=body)
 
 
 def send_buttons(to_whatsapp: str, title: str, body: str, buttons: List[Tuple[str, str]]):
-    """Send Quick Reply buttons via Twilio Content API (max 3)."""
+    """Send Quick Replies using persistent_action (works in Sandbox)."""
     assert twilio_client is not None
-    if not TWILIO_CONTENT_SID_BUTTONS:
-        lines = "\n".join([f"- {t}" for _, t in buttons])
-        return send_text(to_whatsapp, f"{title}\n\n{body}\n\n{lines}")
-
-    vars_obj = {"title": title, "body": body}
-    for idx, (btn_id, btn_title) in enumerate(buttons, start=1):
-        vars_obj[f"btn{idx}_id"] = btn_id
-        vars_obj[f"btn{idx}_title"] = btn_title
-
+    full_body = f"{title}\n\n{body}"
+    actions = [f"quick_reply|{btn_title}" for _, btn_title in buttons]
     twilio_client.messages.create(
         from_=TWILIO_FROM,
         to=to_whatsapp,
-        content_sid=TWILIO_CONTENT_SID_BUTTONS,
-        content_variables=json.dumps(vars_obj),
+        body=full_body,
+        persistent_action=actions
     )
 
 
@@ -269,8 +231,8 @@ def send_question_interactive(to_whatsapp: str, i: int):
     q = QUESTIONS[i]
     title = f"Q{i+1}/{len(QUESTIONS)}"
     body = q["question"]
-    allowed = ["A", "B", "C", "D"][: len(q["options"])]
-    letters = q.get("quick_replies") or allowed[:3]
+    allowed = ["A", "B", "C"]  # since you have 3 options
+    letters = q.get("quick_replies") or allowed
     buttons: List[Tuple[str, str]] = []
     for letter in letters:
         idx = allowed.index(letter)
