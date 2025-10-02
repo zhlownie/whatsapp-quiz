@@ -2,257 +2,148 @@ import os
 import json
 from flask import Flask, request, Response
 from xml.sax.saxutils import escape
-from typing import List, Tuple
 
-# Twilio client (only used when USE_TWILIO_INTERACTIVE=1)
+# Twilio client
 try:
-    from twilio.rest import Client  # type: ignore
+    from twilio.rest import Client
 except ImportError:
     Client = None
 
 app = Flask(__name__)
-
-# In-memory session store: { from_number: { index: int, score: int } }
 sessions = {}
 
-# Production interactive config
+# Config
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM = os.environ.get("TWILIO_FROM")
 TWILIO_CONTENT_SID_BUTTONS = os.environ.get("TWILIO_CONTENT_SID_BUTTONS")
-_env_flag = os.environ.get("USE_TWILIO_INTERACTIVE")
-if _env_flag is None:
-    USE_TWILIO_INTERACTIVE = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM and TWILIO_CONTENT_SID_BUTTONS)
-else:
-    USE_TWILIO_INTERACTIVE = _env_flag == "1"
+USE_TWILIO_INTERACTIVE = (
+    os.environ.get("USE_TWILIO_INTERACTIVE", "0") == "1"
+    and TWILIO_ACCOUNT_SID
+    and TWILIO_AUTH_TOKEN
+    and TWILIO_FROM
+    and TWILIO_CONTENT_SID_BUTTONS
+)
 
 twilio_client = None
 if USE_TWILIO_INTERACTIVE:
     if Client is None:
-        raise RuntimeError("twilio package not installed. Add twilio to requirements.txt")
-    if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM and TWILIO_CONTENT_SID_BUTTONS):
-        raise RuntimeError("Interactive mode requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, and TWILIO_CONTENT_SID_BUTTONS")
+        raise RuntimeError("Install 'twilio' package")
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 
 def load_questions():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base_dir, "questions.json")
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if not isinstance(data, list) or not data:
-        raise ValueError("questions.json must be a non-empty list of questions")
-
-    for i, q in enumerate(data, start=1):
-        if not isinstance(q, dict):
-            raise ValueError(f"Question {i}: must be an object")
-        if not isinstance(q.get("question"), str):
-            raise ValueError(f"Question {i}: 'question' must be a string")
-        opts = q.get("options")
-        if not isinstance(opts, list) or not (2 <= len(opts) <= 4) or not all(isinstance(o, str) for o in opts):
-            raise ValueError(f"Question {i}: 'options' must be a list of 2..4 strings")
-        ans = q.get("answer")
-        allowed_letters = ["A", "B", "C", "D"][: len(opts)]
-        if not isinstance(ans, str) or ans.upper() not in allowed_letters:
-            raise ValueError(f"Question {i}: 'answer' must be one of {', '.join(allowed_letters)}")
-        q["answer"] = ans.upper()
-        qr = q.get("quick_replies")
-        if qr is not None:
-            if not isinstance(qr, list) or not all(isinstance(x, str) for x in qr):
-                raise ValueError(f"Question {i}: 'quick_replies' must be a list of strings if present")
-            seen = set()
-            qr_norm: List[str] = []
-            for x in qr:
-                u = x.upper().strip()
-                if u in allowed_letters and u not in seen:
-                    qr_norm.append(u)
-                    seen.add(u)
-            if len(qr_norm) == 0 or len(qr_norm) > 3:
-                raise ValueError(f"Question {i}: 'quick_replies' must contain 1..3 unique letters within {allowed_letters}")
-            q["quick_replies"] = qr_norm
-        if "hint" in q and not isinstance(q["hint"], str):
-            raise ValueError(f"Question {i}: 'hint' must be a string if present")
-        if "explanation" in q and not isinstance(q["explanation"], str):
-            raise ValueError(f"Question {i}: 'explanation' must be a string if present")
-
-    return data
+    with open("questions.json", "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 QUESTIONS = load_questions()
 
 
-def format_question(i: int) -> str:
-    q = QUESTIONS[i]
-    allowed = ["A", "B", "C", "D"][: len(q["options"])]
-    # Show clean options without prefixes
-    options = "\n".join(q["options"])
-    return (
-        f"Q{i+1}/{len(QUESTIONS)}: {q['question']}\n{options}\n\n"
-        f"Reply with A–{allowed[-1]} (or 1–{len(allowed)})."
-    )
-
-
-def normalize_answer(text: str, current_question=None):
-    """
-    Normalize user input.
-    If current_question is provided, match button text to letter.
-    Otherwise, fall back to A/B/C/D parsing.
-    """
-    if not text:
-        return None
-
-    s = text.strip()
-
-    # If we have the current question, match against clean option text
-    if current_question:
-        options = current_question["options"]
-        answer_letter = current_question["answer"]
-        correct_index = ["A", "B", "C", "D"].index(answer_letter)
-        correct_text = options[correct_index]
-
-        # Exact match with button text?
-        if s == correct_text:
-            return answer_letter
-
-        # Also check if user typed A/B/C
-        if s in ["A", "B", "C", "D"]:
-            return s
-
-    # Fallback: parse loose input (a, b, 1, 2, etc.)
-    s_lower = s.lower()
-    digit_map = {"1": "A", "2": "B", "3": "C", "4": "D"}
-    if s_lower in digit_map:
-        return digit_map[s_lower]
-    if s_lower and s_lower[0] in ("a", "b", "c", "d"):
-        first = s_lower[0]
-        if len(s_lower) == 1 or s_lower[1] in (")", ".", ":", "-", " "):
-            return first.upper()
-
-    return None
-
-
 def twiml(message: str) -> Response:
-    xml = (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        f"<Response><Message>{escape(message)}</Message></Response>"
-    )
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(message)}</Message></Response>'
     return Response(xml, mimetype="application/xml")
-
-
-@app.get("/")
-def health():
-    return "OK", 200
 
 
 @app.post("/whatsapp")
 def whatsapp():
-    # 🔍 DEBUG: Log raw incoming webhook payload
-    print(">>> INCOMING WEBHOOK PAYLOAD:", dict(request.form))
-
     from_number = request.form.get("From", "unknown")
     body = (request.form.get("Body") or "").strip()
-    button_payload = request.form.get("ButtonPayload") or request.form.get("buttonPayload")
 
+    # START command
     if body.lower() in ("start", "restart"):
         sessions[from_number] = {"index": 0, "score": 0}
-        welcome_text = f"Welcome to the Singapore Quiz! You will get {len(QUESTIONS)} questions."
+        welcome = f"Welcome! {len(QUESTIONS)} questions about Singapore. Tap a button to answer."
         if USE_TWILIO_INTERACTIVE:
-            send_text(from_number, welcome_text)
+            send_text(from_number, welcome)
             send_question_interactive(from_number, 0)
             return ("OK", 200)
         else:
-            return twiml(welcome_text + "\n\n" + format_question(0))
+            q = QUESTIONS[0]
+            options = "\n".join(q["options"])
+            return twiml(f"{welcome}\n\n{q['question']}\n{options}")
 
-    if body.lower() in ("help", "?"):
-        return twiml("Send START to begin. Tap buttons if available.")
-
+    # HINT command
     if body.lower() == "hint":
         state = sessions.get(from_number)
         if not state:
-            return twiml("Send START to begin the quiz.")
-        q_index = state["index"]
-        hint = QUESTIONS[q_index].get("hint")
-        return twiml(hint if hint else "No hint available.")
+            return twiml("Send START first.")
+        q = QUESTIONS[state["index"]]
+        return twiml(q.get("hint", "No hint available."))
 
+    # Require active session
     state = sessions.get(from_number)
     if not state:
         return twiml("Send START to begin the quiz.")
 
     q_index = state["index"]
     current_q = QUESTIONS[q_index]
-    raw_answer = (button_payload or body)
-    norm = normalize_answer(raw_answer, current_q)  # ← Pass current question
+    user_answer = body.strip()
 
-    if not norm:
-        return twiml("Please reply with A, B, or C.")
+    # ✅ VALIDATE: Is user's reply one of the valid options?
+    if user_answer not in current_q["options"]:
+        valid_opts = "\n".join(current_q["options"])
+        return twiml(f"Invalid choice. Please select one of:\n{valid_opts}")
 
-    correct_letter = current_q["answer"]
-    is_correct = (norm == correct_letter)
+    # ✅ GRADE: Compare directly to answer string
+    is_correct = (user_answer == current_q["answer"])
     if is_correct:
         state["score"] += 1
         feedback = "✅ Correct!"
     else:
-        feedback = f"❌ Not quite. Correct answer: {correct_letter}."
+        feedback = f"❌ Incorrect. The answer is: {current_q['answer']}."
 
     state["index"] += 1
-    expl = current_q.get("explanation")
-    expl_line = f"\nℹ️ {expl}" if expl else ""
+    expl = f"\nℹ️ {current_q.get('explanation', '')}" if current_q.get("explanation") else ""
 
+    # Quiz complete?
     if state["index"] >= len(QUESTIONS):
         score = state["score"]
         total = len(QUESTIONS)
         pct = round((score / total) * 100)
-        fun = (
-            "Perfect! 🇸🇬🌟" if pct == 100 else
-            "Great job! 🎉" if pct >= 80 else
-            "Nice effort! 👍" if pct >= 50 else
-            "Keep practicing! 💪"
-        )
+        msg = f"{feedback}{expl}\n\nQuiz complete! Score: {score}/{total} ({pct}%)."
+        if pct == 100:
+            msg += " 🇸🇬 Perfect!"
         sessions.pop(from_number, None)
-        return twiml(f"{feedback}{expl_line}\n\nQuiz complete! Score: {score}/{total} ({pct}%). {fun}\nSend START to play again.")
+        return twiml(msg + "\nSend START to play again.")
 
+    # Next question
     if USE_TWILIO_INTERACTIVE:
-        send_text(from_number, f"{feedback}{expl_line}")
+        send_text(from_number, f"{feedback}{expl}")
         send_question_interactive(from_number, state["index"])
         return ("OK", 200)
     else:
-        next_q = format_question(state["index"])
-        return twiml(f"{feedback}{expl_line}\n\n{next_q}")
+        next_q = QUESTIONS[state["index"]]
+        options = "\n".join(next_q["options"])
+        return twiml(f"{feedback}{expl}\n\n{next_q['question']}\n{options}")
 
 
-# ----- Outbound helpers -----
+# --- Twilio helpers ---
 def send_text(to_whatsapp: str, body: str):
-    assert twilio_client is not None
     twilio_client.messages.create(from_=TWILIO_FROM, to=to_whatsapp, body=body)
 
 
-def send_buttons(to_whatsapp: str, title: str, body: str, buttons: List[Tuple[str, str]]):
+def send_buttons(to_whatsapp: str, title: str, body: str, buttons: list):
     vars_obj = {"1": body}
-    for idx, (_, btn_title) in enumerate(buttons, start=1):
-        vars_obj[f"btn{idx}_title"] = btn_title
-
-    content_json = json.dumps(vars_obj, separators=(',', ':'))
-
-    # 🔍 DEBUG: Log outgoing Content API call
-    print(f">>> OUTGOING TWILIO CONTENT CALL: to={to_whatsapp}, content_sid={TWILIO_CONTENT_SID_BUTTONS}, content_variables={content_json}")
-
+    for i, btn_text in enumerate(buttons, start=1):
+        vars_obj[f"btn{i}_title"] = btn_text
     twilio_client.messages.create(
         from_=TWILIO_FROM,
         to=to_whatsapp,
         content_sid=TWILIO_CONTENT_SID_BUTTONS,
-        content_variables=content_json
+        content_variables=json.dumps(vars_obj, separators=(',', ':'))
     )
 
 
 def send_question_interactive(to_whatsapp: str, i: int):
     q = QUESTIONS[i]
-    body = q["question"]
-    allowed = ["A", "B", "C"]
-    letters = q.get("quick_replies") or allowed
-    # Use clean option text (e.g., "Merlion" instead of "B) Merlion")
-    buttons = [(letter, q["options"][allowed.index(letter)]) for letter in letters]
-    send_buttons(to_whatsapp, f"Q{i+1}/{len(QUESTIONS)}", body, buttons)
+    buttons = q["options"]  # Use clean option strings as button titles
+    send_buttons(to_whatsapp, f"Q{i+1}/{len(QUESTIONS)}", q["question"], buttons)
+
+
+@app.get("/")
+def health():
+    return "OK", 200
 
 
 if __name__ == "__main__":
