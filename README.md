@@ -106,3 +106,28 @@ The app builds this `content_variables` JSON for each question and sends it with
 
 ---
 Questions are defined in `questions.json`. For interactive buttons, keep each question to 3 options and set `"quick_replies": ["A","B","C"]`. The app will map those to up to three Quick Reply buttons in production; in Sandbox, users reply with `A/B/C` (or `1/2/3`).
+
+## Troubleshooting
+
+- No buttons show up in WhatsApp
+  - You’re likely on the Sandbox or missing Content API config. Verify env vars: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`, `TWILIO_CONTENT_SID_BUTTONS`.
+  - Ensure your WhatsApp sender is approved (non-sandbox) and the Content Template is approved for WhatsApp.
+  - Set `USE_TWILIO_INTERACTIVE=1` to force-enable (or `0` to disable) for testing.
+
+- “The From phone number is not a valid WhatsApp sender”
+  - `TWILIO_FROM` must be in the format `whatsapp:+<number>` and be a provisioned WhatsApp sender in your account.
+
+- Template variables don’t render or show curly braces
+  - Confirm your Content Template includes the variables used by this app: `{{1}}`, `{{btn1_title}}`, `{{btn2_title}}`, `{{btn3_title}}`.
+  - The app sends `content_variables` as a JSON string with keys `"1"`, `"btn1_title"`, etc.
+
+- Wrong or inconsistent answer matching
+  - In production buttons mode, the app sends clean option text as button titles and also matches typed `A/B/C`.
+  - In Sandbox text mode, reply with `A/B/C` (or `1/2/3`). Use `HINT` when available.
+
+- Nothing happens after sending START
+  - Check Twilio webhook URL points to `/whatsapp` and is reachable (ngrok or deployed URL).
+  - Look at server logs for the `>>> INCOMING WEBHOOK PAYLOAD:` line to confirm the webhook fires.
+
+- Render deploy succeeds but env changes don’t take effect
+  - Redeploy after updating environment variables. Some platforms require a restart to apply env changes.
