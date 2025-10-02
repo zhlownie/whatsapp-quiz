@@ -19,10 +19,11 @@ sessions = {}
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM = os.environ.get("TWILIO_FROM")  # e.g., 'whatsapp:+14155238886'
+TWILIO_CONTENT_SID_BUTTONS = os.environ.get("TWILIO_CONTENT_SID_BUTTONS")  # Your approved template SID
 _env_flag = os.environ.get("USE_TWILIO_INTERACTIVE")
 if _env_flag is None:
     # Auto-enable when all Twilio creds are provided
-    USE_TWILIO_INTERACTIVE = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM)
+    USE_TWILIO_INTERACTIVE = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM and TWILIO_CONTENT_SID_BUTTONS)
 else:
     USE_TWILIO_INTERACTIVE = _env_flag == "1"
 
@@ -30,8 +31,8 @@ twilio_client = None
 if USE_TWILIO_INTERACTIVE:
     if Client is None:
         raise RuntimeError("twilio package not installed. Add twilio to requirements.txt")
-    if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM):
-        raise RuntimeError("Interactive mode requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM")
+    if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM and TWILIO_CONTENT_SID_BUTTONS):
+        raise RuntimeError("Interactive mode requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, and TWILIO_CONTENT_SID_BUTTONS")
     twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 
@@ -215,15 +216,23 @@ def send_text(to_whatsapp: str, body: str):
 
 
 def send_buttons(to_whatsapp: str, title: str, body: str, buttons: List[Tuple[str, str]]):
-    """Send Quick Replies using persistent_action (works in Sandbox)."""
+    """Send Quick Reply buttons using Twilio Content Template."""
     assert twilio_client is not None
-    full_body = f"{title}\n\n{body}"
-    actions = [f"quick_reply|{btn_title}" for _, btn_title in buttons]
+
+    # Build content variables matching your template:
+    # {{1}} = question body
+    # {{btn1_title}}, {{btn2_title}}, {{btn3_title}} = button texts
+    vars_obj = {
+        "1": body,
+    }
+    for idx, (_, btn_title) in enumerate(buttons, start=1):
+        vars_obj[f"btn{idx}_title"] = btn_title
+
     twilio_client.messages.create(
         from_=TWILIO_FROM,
         to=to_whatsapp,
-        body=full_body,
-        persistent_action=actions
+        content_sid=TWILIO_CONTENT_SID_BUTTONS,
+        content_variables=json.dumps(vars_obj)
     )
 
 
