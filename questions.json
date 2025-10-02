@@ -3,9 +3,9 @@
     "id": 1,
     "question": "What is the national flower of Singapore?",
     "options": [
-      "A) Vanda Miss Joaquim",
-      "B) Hibiscus",
-      "C) Lotus"
+      "Vanda Miss Joaquim",
+      "Hibiscus",
+      "Lotus"
     ],
     "answer": "A",
     "hint": "It's a type of orchid named after a Singaporean woman.",
@@ -16,9 +16,9 @@
     "id": 2,
     "question": "Which year did Singapore gain full independence?",
     "options": [
-      "A) 1959",
-      "B) 1963",
-      "C) 1965"
+      "1959",
+      "1963",
+      "1965"
     ],
     "answer": "C",
     "hint": "It happened after separation from Malaysia.",
@@ -29,9 +29,9 @@
     "id": 3,
     "question": "What is the name of Singapore's iconic half-lion, half-fish statue?",
     "options": [
-      "A) Lion Head Symbol",
-      "B) Merlion",
-      "C) Singa"
+      "Lion Head Symbol",
+      "Merlion",
+      "Singa"
     ],
     "answer": "B",
     "hint": "It combines 'mer' (sea) and 'lion'.",
@@ -42,9 +42,9 @@
     "id": 4,
     "question": "Which language is Singapore's national language?",
     "options": [
-      "A) English",
-      "B) Mandarin",
-      "C) Malay"
+      "English",
+      "Mandarin",
+      "Malay"
     ],
     "answer": "C",
     "hint": "It appears in the national anthem.",
@@ -55,9 +55,9 @@
     "id": 5,
     "question": "What does the '.sg' in Singapore websites stand for?",
     "options": [
-      "A) Singapore",
-      "B) Singa",
-      "C) Sovereign Ground"
+      "Singapore",
+      "Singa",
+      "Sovereign Ground"
     ],
     "answer": "A",
     "hint": "It's the standard country code.",

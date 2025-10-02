@@ -85,6 +85,7 @@ QUESTIONS = load_questions()
 def format_question(i: int) -> str:
     q = QUESTIONS[i]
     allowed = ["A", "B", "C", "D"][: len(q["options"])]
+    # Show clean options without prefixes
     options = "\n".join(q["options"])
     return (
         f"Q{i+1}/{len(QUESTIONS)}: {q['question']}\n{options}\n\n"
@@ -92,12 +93,33 @@ def format_question(i: int) -> str:
     )
 
 
-def normalize_answer(text: str):
+def normalize_answer(text: str, current_question=None):
+    """
+    Normalize user input.
+    If current_question is provided, match button text to letter.
+    Otherwise, fall back to A/B/C/D parsing.
+    """
     if not text:
         return None
+
     s = text.strip()
-    if s and s[0] in ("A", "B", "C", "D"):
-        return s[0]
+
+    # If we have the current question, match against clean option text
+    if current_question:
+        options = current_question["options"]
+        answer_letter = current_question["answer"]
+        correct_index = ["A", "B", "C", "D"].index(answer_letter)
+        correct_text = options[correct_index]
+
+        # Exact match with button text?
+        if s == correct_text:
+            return answer_letter
+
+        # Also check if user typed A/B/C
+        if s in ["A", "B", "C", "D"]:
+            return s
+
+    # Fallback: parse loose input (a, b, 1, 2, etc.)
     s_lower = s.lower()
     digit_map = {"1": "A", "2": "B", "3": "C", "4": "D"}
     if s_lower in digit_map:
@@ -106,6 +128,7 @@ def normalize_answer(text: str):
         first = s_lower[0]
         if len(s_lower) == 1 or s_lower[1] in (")", ".", ":", "-", " "):
             return first.upper()
+
     return None
 
 
@@ -156,13 +179,15 @@ def whatsapp():
     if not state:
         return twiml("Send START to begin the quiz.")
 
+    q_index = state["index"]
+    current_q = QUESTIONS[q_index]
     raw_answer = (button_payload or body)
-    norm = normalize_answer(raw_answer)
+    norm = normalize_answer(raw_answer, current_q)  # ← Pass current question
+
     if not norm:
         return twiml("Please reply with A, B, or C.")
 
-    q_index = state["index"]
-    correct_letter = QUESTIONS[q_index]["answer"]
+    correct_letter = current_q["answer"]
     is_correct = (norm == correct_letter)
     if is_correct:
         state["score"] += 1
@@ -171,7 +196,7 @@ def whatsapp():
         feedback = f"❌ Not quite. Correct answer: {correct_letter}."
 
     state["index"] += 1
-    expl = QUESTIONS[q_index].get("explanation")
+    expl = current_q.get("explanation")
     expl_line = f"\nℹ️ {expl}" if expl else ""
 
     if state["index"] >= len(QUESTIONS):
@@ -225,6 +250,7 @@ def send_question_interactive(to_whatsapp: str, i: int):
     body = q["question"]
     allowed = ["A", "B", "C"]
     letters = q.get("quick_replies") or allowed
+    # Use clean option text (e.g., "Merlion" instead of "B) Merlion")
     buttons = [(letter, q["options"][allowed.index(letter)]) for letter in letters]
     send_buttons(to_whatsapp, f"Q{i+1}/{len(QUESTIONS)}", body, buttons)
 
