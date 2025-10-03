@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask, request, Response
+from flask import Flask, request, Response, send_from_directory
 from xml.sax.saxutils import escape
 
 # Twilio client
@@ -40,6 +40,12 @@ def load_questions():
 QUESTIONS = load_questions()
 
 
+# Serve static files (e.g., /static/images/merlion.jpg)
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
+
+
 def twiml(message: str) -> Response:
     xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(message)}</Message></Response>'
     return Response(xml, mimetype="application/xml")
@@ -50,10 +56,9 @@ def whatsapp():
     from_number = request.form.get("From", "unknown")
     body = (request.form.get("Body") or "").strip()
 
-    # START command
     if body.lower() in ("start", "restart"):
         sessions[from_number] = {"index": 0, "score": 0}
-        welcome = f"Welcome! {len(QUESTIONS)} questions about Singapore. Tap a button to answer."
+        welcome = f"Welcome to the Singapore Quiz! {len(QUESTIONS)} questions await. Tap a button to answer."
         if USE_TWILIO_INTERACTIVE:
             send_text(from_number, welcome)
             send_question_interactive(from_number, 0)
@@ -63,7 +68,6 @@ def whatsapp():
             options = "\n".join(q["options"])
             return twiml(f"{welcome}\n\n{q['question']}\n{options}")
 
-    # HINT command
     if body.lower() == "hint":
         state = sessions.get(from_number)
         if not state:
@@ -71,7 +75,6 @@ def whatsapp():
         q = QUESTIONS[state["index"]]
         return twiml(q.get("hint", "No hint available."))
 
-    # Require active session
     state = sessions.get(from_number)
     if not state:
         return twiml("Send START to begin the quiz.")
@@ -80,12 +83,10 @@ def whatsapp():
     current_q = QUESTIONS[q_index]
     user_answer = body.strip()
 
-    # ✅ VALIDATE: Is user's reply one of the valid options?
     if user_answer not in current_q["options"]:
         valid_opts = "\n".join(current_q["options"])
         return twiml(f"Invalid choice. Please select one of:\n{valid_opts}")
 
-    # ✅ GRADE: Compare directly to answer string
     is_correct = (user_answer == current_q["answer"])
     if is_correct:
         state["score"] += 1
@@ -96,7 +97,6 @@ def whatsapp():
     state["index"] += 1
     expl = f"\nℹ️ {current_q.get('explanation', '')}" if current_q.get("explanation") else ""
 
-    # Quiz complete?
     if state["index"] >= len(QUESTIONS):
         score = state["score"]
         total = len(QUESTIONS)
@@ -107,7 +107,6 @@ def whatsapp():
         sessions.pop(from_number, None)
         return twiml(msg + "\nSend START to play again.")
 
-    # Next question
     if USE_TWILIO_INTERACTIVE:
         send_text(from_number, f"{feedback}{expl}")
         send_question_interactive(from_number, state["index"])
@@ -123,22 +122,34 @@ def send_text(to_whatsapp: str, body: str):
     twilio_client.messages.create(from_=TWILIO_FROM, to=to_whatsapp, body=body)
 
 
-def send_buttons(to_whatsapp: str, title: str, body: str, buttons: list):
-    vars_obj = {"1": body}
-    for i, btn_text in enumerate(buttons, start=1):
-        vars_obj[f"btn{i}_title"] = btn_text
+def send_question_interactive(to_whatsapp: str, i: int):
+    q = QUESTIONS[i]
+    
+    if "image_url" in q:
+        # Build full public image URL
+        base_url = "https://whatsapp-quiz.onrender.com"
+        full_image_url = base_url.rstrip("/") + q["image_url"]
+        
+        # Use image+buttons template
+        vars_obj = {
+            "1": q["question"],
+            "2": full_image_url,
+            "btn1_title": q["options"][0],
+            "btn2_title": q["options"][1],
+            "btn3_title": q["options"][2]
+        }
+    else:
+        # Text-only question
+        vars_obj = {"1": q["question"]}
+        for idx, btn_text in enumerate(q["options"], start=1):
+            vars_obj[f"btn{idx}_title"] = btn_text
+
     twilio_client.messages.create(
         from_=TWILIO_FROM,
         to=to_whatsapp,
         content_sid=TWILIO_CONTENT_SID_BUTTONS,
         content_variables=json.dumps(vars_obj, separators=(',', ':'))
     )
-
-
-def send_question_interactive(to_whatsapp: str, i: int):
-    q = QUESTIONS[i]
-    buttons = q["options"]  # Use clean option strings as button titles
-    send_buttons(to_whatsapp, f"Q{i+1}/{len(QUESTIONS)}", q["question"], buttons)
 
 
 @app.get("/")

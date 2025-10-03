@@ -38,5 +38,14 @@
     "answer": "Singapore",
     "hint": "It's the standard country code.",
     "explanation": "'.sg' is Singapore's Internet country code top-level domain (ccTLD), assigned in 1988."
+  },
+  {
+    "id": 6,
+    "question": "What is this iconic Singapore landmark?",
+    "options": ["Merlion", "Lion", "Mermaid"],
+    "answer": "Merlion",
+    "hint": "It has the head of a lion and the body of a fish.",
+    "explanation": "The Merlion is Singapore's official mascot, representing its origins as a fishing village (Singapura = 'Lion City').",
+    "image_url": "/static/images/merlion.jpg"
   }
 ]
