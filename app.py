@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from flask import Flask, request, Response, send_from_directory
 from xml.sax.saxutils import escape
 
@@ -18,6 +19,9 @@ TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM = os.environ.get("TWILIO_FROM")
 TWILIO_CONTENT_SID_BUTTONS = os.environ.get("TWILIO_CONTENT_SID_BUTTONS")
 TWILIO_CONTENT_SID_IMAGE = os.environ.get("TWILIO_CONTENT_SID_IMAGE")
+
+# Configurable delay (default: 5 seconds)
+IMAGE_DELAY_SECONDS = int(os.environ.get("IMAGE_DELAY_SECONDS", "5"))
 
 USE_TWILIO_INTERACTIVE = (
     os.environ.get("USE_TWILIO_INTERACTIVE", "0") == "1"
@@ -129,13 +133,16 @@ def send_question_interactive(to_whatsapp: str, i: int):
     q = QUESTIONS[i]
     
     if "image_url" in q:
-        # ✅ MESSAGE 1: Send image using relative path
+        # ✅ MESSAGE 1: Send image only
         twilio_client.messages.create(
             from_=TWILIO_FROM,
             to=to_whatsapp,
             content_sid=TWILIO_CONTENT_SID_IMAGE,
             content_variables=json.dumps({"1": q["image_url"]}, separators=(',', ':'))
         )
+        
+        # ⏳ Wait for image to load (configurable delay)
+        time.sleep(IMAGE_DELAY_SECONDS)
         
         # ✅ MESSAGE 2: Send question + buttons
         vars_obj = {
