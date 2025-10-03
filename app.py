@@ -12,7 +12,7 @@ except ImportError:
 app = Flask(__name__)
 sessions = {}
 
-# Config
+# Load config from environment
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM = os.environ.get("TWILIO_FROM")
@@ -117,7 +117,7 @@ def whatsapp():
         return twiml(f"{feedback}{expl}\n\n{next_q['question']}\n{options}")
 
 
-# --- Twilio helpers ---
+# --- Twilio outbound helpers ---
 def send_text(to_whatsapp: str, body: str):
     twilio_client.messages.create(from_=TWILIO_FROM, to=to_whatsapp, body=body)
 
@@ -126,11 +126,11 @@ def send_question_interactive(to_whatsapp: str, i: int):
     q = QUESTIONS[i]
     
     if "image_url" in q:
-        # Build full public image URL
-        base_url = "https://whatsapp-quiz.onrender.com"
+        # ✅ Use RENDER_EXTERNAL_URL (auto-set by Render)
+        base_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:3000")
         full_image_url = base_url.rstrip("/") + q["image_url"]
         
-        # Use image+buttons template
+        # Template must support: {{1}}=text, {{2}}=image, btn1-3=buttons
         vars_obj = {
             "1": q["question"],
             "2": full_image_url,
