@@ -17,12 +17,15 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM = os.environ.get("TWILIO_FROM")
 TWILIO_CONTENT_SID_BUTTONS = os.environ.get("TWILIO_CONTENT_SID_BUTTONS")
+TWILIO_CONTENT_SID_IMAGE = os.environ.get("TWILIO_CONTENT_SID_IMAGE")
+
 USE_TWILIO_INTERACTIVE = (
     os.environ.get("USE_TWILIO_INTERACTIVE", "0") == "1"
     and TWILIO_ACCOUNT_SID
     and TWILIO_AUTH_TOKEN
     and TWILIO_FROM
     and TWILIO_CONTENT_SID_BUTTONS
+    and TWILIO_CONTENT_SID_IMAGE
 )
 
 twilio_client = None
@@ -40,7 +43,7 @@ def load_questions():
 QUESTIONS = load_questions()
 
 
-# Serve static files (e.g., /static/images/merlion.jpg)
+# Serve static files (e.g., static/images/merlion.jpg)
 @app.route('/static/<path:filename>')
 def static_files(filename):
     return send_from_directory('static', filename)
@@ -126,30 +129,38 @@ def send_question_interactive(to_whatsapp: str, i: int):
     q = QUESTIONS[i]
     
     if "image_url" in q:
-        # ✅ Use RENDER_EXTERNAL_URL (auto-set by Render)
-        base_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:3000")
-        full_image_url = base_url.rstrip("/") + q["image_url"]
+        # ✅ MESSAGE 1: Send image using relative path
+        twilio_client.messages.create(
+            from_=TWILIO_FROM,
+            to=to_whatsapp,
+            content_sid=TWILIO_CONTENT_SID_IMAGE,
+            content_variables=json.dumps({"1": q["image_url"]}, separators=(',', ':'))
+        )
         
-        # Template must support: {{1}}=text, {{2}}=image, btn1-3=buttons
+        # ✅ MESSAGE 2: Send question + buttons
         vars_obj = {
             "1": q["question"],
-            "2": full_image_url,
             "btn1_title": q["options"][0],
             "btn2_title": q["options"][1],
             "btn3_title": q["options"][2]
         }
+        twilio_client.messages.create(
+            from_=TWILIO_FROM,
+            to=to_whatsapp,
+            content_sid=TWILIO_CONTENT_SID_BUTTONS,
+            content_variables=json.dumps(vars_obj, separators=(',', ':'))
+        )
     else:
         # Text-only question
         vars_obj = {"1": q["question"]}
         for idx, btn_text in enumerate(q["options"], start=1):
             vars_obj[f"btn{idx}_title"] = btn_text
-
-    twilio_client.messages.create(
-        from_=TWILIO_FROM,
-        to=to_whatsapp,
-        content_sid=TWILIO_CONTENT_SID_BUTTONS,
-        content_variables=json.dumps(vars_obj, separators=(',', ':'))
-    )
+        twilio_client.messages.create(
+            from_=TWILIO_FROM,
+            to=to_whatsapp,
+            content_sid=TWILIO_CONTENT_SID_BUTTONS,
+            content_variables=json.dumps(vars_obj, separators=(',', ':'))
+        )
 
 
 @app.get("/")

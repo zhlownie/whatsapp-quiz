@@ -46,6 +46,6 @@
     "answer": "Merlion",
     "hint": "It has the head of a lion and the body of a fish.",
     "explanation": "The Merlion is Singapore's official mascot, representing its origins as a fishing village (Singapura = 'Lion City').",
-    "image_url": "/static/images/merlion.jpg"
+    "image_url": "static/images/merlion.jpg"
   }
 ]
