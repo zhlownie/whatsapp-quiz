@@ -90,6 +90,24 @@ npx ngrok http 3000
 
 The app builds this `content_variables` JSON for each question and sends it with `content_sid=TWILIO_CONTENT_SID_BUTTONS`.
 
+4) Image templates and base URL
+
+- If your template supports an image, include a second variable `{{2}}` for the image media.
+- The app will build an absolute image URL using the environment variable `RENDER_EXTERNAL_URL` (auto-set on Render). Locally, it falls back to `http://localhost:3000`.
+- Example variables for an image question:
+
+```jsonc
+{
+  "1": "What is this iconic Singapore landmark?",
+  "2": "https://<your-app>.onrender.com/static/images/merlion.jpg",
+  "btn1_title": "Merlion",
+  "btn2_title": "Lion",
+  "btn3_title": "Mermaid"
+}
+```
+
+Make sure your `image_url` in `questions.json` points to a path under `/static`, e.g. `/static/images/merlion.jpg`.
+
 ## Deploy to Render
 - Push this repo to GitHub
 - Create a new Web Service in Render
